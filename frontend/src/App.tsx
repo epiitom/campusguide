@@ -1,10 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { Button } from './components/ui/button'
 import './App.css'
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
-import { Icon } from 'leaflet'
 
 // Fix for default marker icons in Leaflet
 delete (L.Icon.Default.prototype as any)._getIconUrl
@@ -30,23 +27,15 @@ interface Location {
   direction: string
 }
 
-interface CollegeInfo {
-  id: number
-  name: string
-  lat: number
-  lng: number
-}
-
 function App() {
   const [messages, setMessages] = useState<Message[]>([
-    { id: "welcome", text: "Welcome to the Campus Guide! How can I help you today?", isUser: false, timestamp: new Date() }
+    { id: "welcome", text: "Hi! I'm your campus guide. How can I help you today? 😊", isUser: false, timestamp: new Date() }
   ])
   const [inputValue, setInputValue] = useState("")
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null)
   const [showMap, setShowMap] = useState(false)
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null)
   const [campusLocations, setCampusLocations] = useState<Location[]>([])
-  const [collegeInfo, setCollegeInfo] = useState<CollegeInfo | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   
   const mapRef = useRef<L.Map | null>(null)
@@ -57,49 +46,20 @@ function App() {
   // Fetch campus locations on component mount
   useEffect(() => {
     fetchLocations()
-    fetchCollegeInfo()
   }, [])
 
   // Fetch locations from backend
   const fetchLocations = async () => {
     try {
-      console.log('Fetching locations from backend...')
       const response = await fetch('http://localhost:3001/api/locations')
-      if (!response.ok) {
-        console.error('Failed to fetch locations:', response.status, response.statusText)
-        throw new Error(`Failed to fetch locations: ${response.status} ${response.statusText}`)
-      }
+      if (!response.ok) throw new Error('Failed to fetch locations')
       const data = await response.json()
-      console.log('Received locations:', data)
       setCampusLocations(data)
     } catch (error) {
       console.error('Error fetching locations:', error)
-      // Add error message to chat
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
-        text: "Sorry, I'm having trouble connecting to the server. Please make sure the backend is running on port 3001.",
-        isUser: false,
-        timestamp: new Date()
-      }])
-    }
-  }
-
-  const fetchCollegeInfo = async () => {
-    try {
-      const response = await fetch('http://localhost:3001/api/college')
-      if (!response.ok) {
-        console.error('Failed to fetch college info:', response.status, response.statusText)
-        throw new Error(`Failed to fetch college info: ${response.status} ${response.statusText}`)
-      }
-      const data = await response.json()
-      console.log('Received college info:', data)
-      setCollegeInfo(data)
-    } catch (error) {
-      console.error('Error fetching college info:', error)
-      // Add error message to chat
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        text: "Sorry, I'm having trouble connecting to the server. Please make sure the backend is running on port 3001.",
+        text: "Oops! I'm having trouble connecting to the server. Could you please check if the backend is running?",
         isUser: false,
         timestamp: new Date()
       }])
@@ -116,8 +76,7 @@ function App() {
         },
         (error) => {
           console.error("Geolocation error:", error)
-          // Use default location if user location is not available
-          setUserLocation([21.0060, 79.0490])
+          setUserLocation([21.0060, 79.0490]) // Default location
         }
       )
 
@@ -127,7 +86,7 @@ function App() {
           const newLocation: [number, number] = [position.coords.latitude, position.coords.longitude]
           setUserLocation(newLocation)
           
-          // Update map if it's showing and we have a selected location
+          // Update map if showing and location selected
           if (showMap && selectedLocation && mapRef.current) {
             const locationInfo = campusLocations.find(loc => loc.id === selectedLocation)
             if (locationInfo) {
@@ -185,7 +144,6 @@ function App() {
         }
       )
 
-      // Cleanup function to stop watching position
       return () => {
         navigator.geolocation.clearWatch(watchId)
       }
@@ -196,6 +154,70 @@ function App() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!inputValue.trim()) return
+
+    // Add user message
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      text: inputValue,
+      isUser: true,
+      timestamp: new Date()
+    }
+    
+    setMessages(prev => [...prev, userMessage])
+    setInputValue("")
+    setIsLoading(true)
+    
+    try {
+      const response = await fetch('http://localhost:3001/api/campus-guide', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: inputValue }),
+      })
+
+      if (!response.ok) throw new Error('Failed to get response')
+      
+      const data = await response.json()
+      
+      const responseMsg: Message = {
+        id: Date.now().toString(),
+        text: data.message,
+        isUser: false,
+        location: data.location?.id,
+        timestamp: new Date()
+      }
+      
+      setMessages(prev => [...prev, responseMsg])
+      
+      if (data.showMap && data.location) {
+        setSelectedLocation(data.location.id)
+        setShowMap(true)
+      }
+    } catch (error) {
+      console.error('Error processing message:', error)
+      
+      const fallbackMsg: Message = {
+        id: Date.now().toString(),
+        text: "Oops! I'm having trouble connecting to the server. Could you please check if the backend is running?",
+        isUser: false,
+        timestamp: new Date()
+      }
+      
+      setMessages(prev => [...prev, fallbackMsg])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const closeMap = () => {
+    setShowMap(false)
+    setSelectedLocation(null)
+  }
 
   // Initialize or update map when showing
   useEffect(() => {
@@ -253,51 +275,18 @@ function App() {
               .addTo(mapRef.current)
               .bindPopup('You are here')
 
-            // Draw path from user to destination with distance
-            const path = L.polyline([userLocation, locationCoords], {
+            // Draw path from user to destination
+            L.polyline([userLocation, locationCoords], {
               color: '#4F46E5',
               weight: 4,
               opacity: 0.8,
               dashArray: '10, 10'
             }).addTo(mapRef.current)
 
-            // Calculate and display distance
-            const distance = L.latLng(userLocation[0], userLocation[1])
-              .distanceTo(L.latLng(locationCoords[0], locationCoords[1]))
-            const distanceText = distance < 1000 
-              ? `${Math.round(distance)} meters` 
-              : `${(distance / 1000).toFixed(1)} km`
-
-            // Add distance label to the path
-            const midPoint = path.getBounds().getCenter()
-            L.marker(midPoint, {
-              icon: L.divIcon({
-                className: 'distance-label',
-                html: `<div class="bg-white px-2 py-1 rounded shadow text-sm">${distanceText}</div>`,
-                iconSize: [100, 20],
-                iconAnchor: [50, 10]
-              })
-            }).addTo(mapRef.current)
-
-            // Fit bounds to show both markers with padding
+            // Fit bounds to show both markers
             mapRef.current.fitBounds([userLocation, locationCoords], {
               padding: [50, 50]
             })
-
-            // Add direction instructions
-            const directionPopup = L.popup({
-              closeButton: true,
-              className: 'direction-popup'
-            })
-              .setLatLng(midPoint)
-              .setContent(`
-                <div class="text-sm">
-                  <p><strong>Directions to ${locationInfo.name}:</strong></p>
-                  <p>${locationInfo.direction}</p>
-                  <p>Distance: ${distanceText}</p>
-                </div>
-              `)
-              .addTo(mapRef.current)
           } else {
             mapRef.current.setView(locationCoords, 18)
           }
@@ -317,88 +306,6 @@ function App() {
       }
     }
   }, [showMap, selectedLocation, userLocation, campusLocations])
-
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!inputValue.trim()) return
-
-    // Add user message
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      text: inputValue,
-      isUser: true,
-      timestamp: new Date()
-    }
-    
-    setMessages(prev => [...prev, userMessage])
-    setInputValue("")
-    setIsLoading(true)
-    
-    try {
-      console.log('Sending message to backend:', inputValue)
-      const response = await fetch('http://localhost:3001/api/campus-guide', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ query: inputValue }),
-      })
-
-      if (!response.ok) {
-        console.error('Failed to get response:', response.status, response.statusText)
-        throw new Error(`Failed to get response: ${response.status} ${response.statusText}`)
-      }
-      
-      const data = await response.json()
-      console.log('Received response:', data)
-      
-      const responseMsg: Message = {
-        id: Date.now().toString(),
-        text: data.message,
-        isUser: false,
-        location: data.location?.id,
-        timestamp: new Date()
-      }
-      
-      setMessages(prev => [...prev, responseMsg])
-      
-      if (data.showMap && data.location) {
-        setSelectedLocation(data.location.id)
-        setShowMap(true)
-      }
-    } catch (error) {
-      console.error('Error processing message:', error)
-      
-      // Fallback response with more specific error message
-      const fallbackMsg: Message = {
-        id: Date.now().toString(),
-        text: "Sorry, I'm having trouble connecting to the server. Please make sure the backend is running on port 3001.",
-        isUser: false,
-        timestamp: new Date()
-      }
-      
-      setMessages(prev => [...prev, fallbackMsg])
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleLocationButtonClick = (locationId: string) => {
-    const location = campusLocations.find(loc => loc.id === locationId)
-    if (location) {
-      setInputValue(`Where is the ${location.name.toLowerCase()}?`)
-      // Auto-submit after a short delay
-      setTimeout(() => {
-        const event = new Event('submit') as unknown as React.FormEvent
-        handleSendMessage(event)
-      }, 100)
-    }
-  }
-
-  const closeMap = () => {
-    setShowMap(false)
-    setSelectedLocation(null)
-  }
 
   return (
     <div className="flex h-screen bg-gray-900">
@@ -508,28 +415,7 @@ function App() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
-          {collegeInfo && (
-            <MapContainer
-              center={[collegeInfo.lat, collegeInfo.lng]}
-              zoom={15}
-              className="h-full w-full"
-            >
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-              />
-              {selectedLocation && (
-                <Marker position={[campusLocations.find(loc => loc.id === selectedLocation)?.lat || 0, campusLocations.find(loc => loc.id === selectedLocation)?.lng || 0]}>
-                  <Popup>
-                    <div className="text-gray-800">
-                      <h3 className="font-semibold">{campusLocations.find(loc => loc.id === selectedLocation)?.name}</h3>
-                      <p className="text-sm text-gray-600">{campusLocations.find(loc => loc.id === selectedLocation)?.direction}</p>
-                    </div>
-                  </Popup>
-                </Marker>
-              )}
-            </MapContainer>
-          )}
+          <div ref={mapContainerRef} className="h-full w-full" />
         </div>
       )}
     </div>
