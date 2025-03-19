@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Campus Guide</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f5f7fa;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+    .container {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    h1 {
+      color: #2c3e50;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #7f8c8d;
+      font-size: 1.1em;
+    }
+    .search-box {
+      display: flex;
+      margin: 20px 0;
+    }
+    input {
+      flex: 1;
+      padding: 12px 15px;
+      border: 1px solid #ddd;
+      border-radius: 4px 0 0 4px;
+      font-size: 16px;
+    }
+    button {
+      padding: 12px 20px;
+      background: #3498db;
+      color: white;
+      border: none;
+      border-radius: 0 4px 4px 0;
+      cursor: pointer;
+      font-size: 16px;
+      transition: background 0.3s;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    .response-area {
+      margin-top: 30px;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 5px;
+      min-height: 100px;
+      display: none;
+    }
+    .response-area.active {
+      display: block;
+      animation: fadeIn 0.5s;
+    }
+    .loading {
+      text-align: center;
+      color: #7f8c8d;
+      font-style: italic;
+    }
+    .locations-list {
+      margin-top: 40px;
+    }
+    .locations-list h3 {
+      border-bottom: 1px solid #eee;
+      padding-bottom: 10px;
+      color: #2c3e50;
+    }
+    .location-item {
+      padding: 10px;
+      margin: 5px 0;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .location-item:hover {
+      background: #eee;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Campus Guide</h1>
+      <p class="subtitle">Your witty guide to finding places on campus</p>
+    </header>
+
+    <div class="search-box">
+      <input 
+        id="searchInput" 
+        type="text" 
+        placeholder="Where's the canteen?" 
+        aria-label="Search location"
+      >
+      <button onclick="searchLocation()">Find</button>
+    </div>
+
+    <div id="responseArea" class="response-area">
+      <p id="responseText"></p>
+    </div>
+
+    <div class="locations-list">
+      <h3>Available Locations</h3>
+      <div id="locationsList"></div>
+    </div>
+  </div>
+
+  <script>
+    // Load available locations when the page loads
+    document.addEventListener('DOMContentLoaded', loadLocations);
+
+    // Function to load all available locations
+    async function loadLocations() {
+      try {
+        const response = await fetch('/api/directions/all');
+        const data = await response.json();
+        
+        const locationsList = document.getElementById('locationsList');
+        locationsList.innerHTML = '';
+        
+        if (data.locations && data.locations.length > 0) {
+          data.locations.forEach(location => {
+            const div = document.createElement('div');
+            div.className = 'location-item';
+            div.textContent = location.place_name;
+            div.onclick = () => {
+              document.getElementById('searchInput').value = location.place_name;
+              searchLocation();
+            };
+            locationsList.appendChild(div);
+          });
+        } else {
+          locationsList.innerHTML = '<p>No locations found</p>';
+        }
+    } catch (error) {
+        console.error('Error loading locations:', error);
+        const locationsList = document.getElementById('locationsList');
+        locationsList.innerHTML = '<p>Failed to load locations</p>';
+      }
+    }
+
+    // Function to search for a location
+    async function searchLocation() {
+      const query = document.getElementById('searchInput').value.trim();
+      const responseArea = document.getElementById('responseArea');
+      const responseText = document.getElementById('responseText');
+      
+      if (!query) {
+        responseArea.classList.add('active');
+        responseText.textContent = "Please enter a location to search for!";
+        return;
+      }
+      
+      // Show loading state
+      responseArea.classList.add('active');
+      responseText.innerHTML = '<div class="loading">Finding directions...</div>';
+      
+      try {
+        const response = await fetch('/api/directions/search', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ query })
+        });
+        
+        const data = await response.json();
+        
+        // Update response area with the AI's response
+        responseText.textContent = data.response;
+      } catch (error) {
+        console.error('Error:', error);
+        responseText.textContent = "Sorry, something went wrong. Please try again later.";
+      }
+    }
+
+    // Allow pressing Enter key to search
+    document.getElementById('searchInput').addEventListener('keypress', function(event) {
+      if (event.key === 'Enter') {
+        searchLocation();
+      }
+    });
+  </script>
+</body>
+</html>
